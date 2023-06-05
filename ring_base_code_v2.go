@@ -1,3 +1,5 @@
+// sistemas distribuidos (eleicao em anel)
+
 package main
 
 import (
@@ -81,74 +83,76 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 
 	actualLeader = leader // indicação do lider veio por parâmetro
 
-	temp := <-in // ler mensagem
-	fmt.Printf("%2d: recebi mensagem %d, [ %d, %d, %d ]\n", TaskId, temp.tipo, temp.corpo[0], temp.corpo[1], temp.corpo[2])
+	for { // loop infinito para receber mensagens continuamente
+		temp := <-in // ler mensagem
+		fmt.Printf("%2d: recebi mensagem %d, [ %d, %d, %d ]\n", TaskId, temp.tipo, temp.corpo[0], temp.corpo[1], temp.corpo[2])
 
-	switch temp.tipo {
-	case 0:
-		{
-			if !bFailed {
-				actualLeader = temp.corpo[0] // atualizar o lider com o id na mensagem
-				fmt.Printf("%2d: novo lider %d\n", TaskId, actualLeader)
-				bElection = false           // encerrar a eleicao
-				if TaskId != actualLeader { // se nao for o lider, enviar a mensagem para o proximo no anel
-					out <- temp
-				} else { // se for o lider, enviar uma confirmacao para o controlador
-					controle <- actualLeader
-				}
-			}
-		}
-	case 1:
-		{
-			if !bFailed {
-				if temp.corpo[0] == TaskId { // se for o processo que iniciou a eleicao
-					bElection = false              // encerrar a eleicao
-					actualLeader = max(temp.corpo) // escolher o maior id na mensagem como o novo lider
+		switch temp.tipo {
+		case 0:
+			{
+				if !bFailed {
+					actualLeader = temp.corpo[0] // atualizar o lider com o id na mensagem
 					fmt.Printf("%2d: novo lider %d\n", TaskId, actualLeader)
-					temp.tipo = 0 // mudar o tipo da mensagem para anunciar o novo lider
-					out <- temp   // enviar a mensagem para o proximo no anel
-				} else { // se nao for o processo que iniciou a eleicao
-					if bElection { // se ja estiver em uma eleicao
-						if TaskId > temp.corpo[2] { // se seu id for maior que o ultimo na mensagem
-							temp.corpo[2] = temp.corpo[1] // deslocar os ids na mensagem
-							temp.corpo[1] = temp.corpo[0]
-							temp.corpo[0] = TaskId // adicionar seu id na mensagem
-						}
-						out <- temp // enviar a mensagem para o proximo no anel
-					} else { // se nao estiver em uma eleicao
-						bElection = true            // iniciar uma eleicao
-						if TaskId > temp.corpo[0] { // se seu id for maior que o primeiro na mensagem
-							temp.corpo[2] = temp.corpo[1] // deslocar os ids na mensagem
-							temp.corpo[1] = temp.corpo[0]
-							temp.corpo[0] = TaskId // adicionar seu id na mensagem
-						}
-						out <- temp // enviar a mensagem para o proximo no anel
+					bElection = false           // encerrar a eleicao
+					if TaskId != actualLeader { // se nao for o lider, enviar a mensagem para o proximo no anel
+						out <- temp
+					} else { // se for o lider, enviar uma confirmacao para o controlador
+						controle <- actualLeader
 					}
 				}
 			}
+		case 1:
+			{
+				if !bFailed {
+					if temp.corpo[0] == TaskId { // se for o processo que iniciou a eleicao
+						bElection = false              // encerrar a eleicao
+						actualLeader = max(temp.corpo) // escolher o maior id na mensagem como o novo lider
+						fmt.Printf("%2d: novo lider %d\n", TaskId, actualLeader)
+						temp.tipo = 0 // mudar o tipo da mensagem para anunciar o novo lider
+						out <- temp   // enviar a mensagem para o proximo no anel
+					} else { // se nao for o processo que iniciou a eleicao
+						if bElection { // se ja estiver em uma eleicao
+							if TaskId > temp.corpo[2] { // se seu id for maior que o ultimo na mensagem
+								temp.corpo[2] = temp.corpo[1] // deslocar os ids na mensagem
+								temp.corpo[1] = temp.corpo[0]
+								temp.corpo[0] = TaskId // adicionar seu id na mensagem
+							}
+							out <- temp // enviar a mensagem para o proximo no anel
+						} else { // se nao estiver em uma eleicao
+							bElection = true            // iniciar uma eleicao
+							if TaskId > temp.corpo[0] { // se seu id for maior que o primeiro na mensagem
+								temp.corpo[2] = temp.corpo[1] // deslocar os ids na mensagem
+								temp.corpo[1] = temp.corpo[0]
+								temp.corpo[0] = TaskId // adicionar seu id na mensagem
+							}
+							out <- temp // enviar a mensagem para o proximo no anel
+						}
+					}
+				}
+			}
+		case 2:
+			{
+				bFailed = true
+				fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				controle <- -5
+			}
+		case 3:
+			{
+				bFailed = false
+				fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				controle <- -5
+			}
+		default:
+			{
+				fmt.Printf("%2d: não conheço este tipo de mensagem\n", TaskId)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+			}
 		}
-	case 2:
-		{
-			bFailed = true
-			fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
-			controle <- -5
-		}
-	case 3:
-		{
-			bFailed = false
-			fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
-			controle <- -5
-		}
-	default:
-		{
-			fmt.Printf("%2d: não conheço este tipo de mensagem\n", TaskId)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
-		}
-	}
 
-	fmt.Printf("%2d: terminei \n", TaskId)
+		fmt.Printf("%2d: terminei \n", TaskId)
+	}
 }
 
 func max(arr [3]int) int {
