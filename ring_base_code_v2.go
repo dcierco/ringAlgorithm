@@ -8,8 +8,10 @@ import (
 )
 
 type mensagem struct {
-	tipo  int    // tipo da mensagem para fazer o controle do que fazer (eleição, confirmacao da eleicao)
-	corpo [3]int // conteudo da mensagem para colocar os ids (usar um tamanho compativel com o numero de processos no anel)
+	tipo    int    // tipo da mensagem para fazer o controle do que fazer (eleição, confirmacao da eleicao)
+	corpo   [3]int // conteudo da mensagem para colocar os ids (usar um tamanho compativel com o numero de processos no anel)
+	falho   bool   // indica se o processo que enviou a mensagem está falho ou não
+	origem int // indica o id do processo que enviou a mensagem originalmente
 }
 
 var (
@@ -34,14 +36,17 @@ func ElectionControler(in chan int) {
 
 	temp.tipo = 1
 	temp.corpo[0] = 2 // colocar o id do processo que inicia a eleicao
+	temp.falho = false // indicar que o processo não está falho
+	temp.origem = temp.corpo[0] // indicar que o processo é o originador da mensagem
 	chans[1] <- temp
-	fmt.Printf("Controle: iniciar uma eleicao pelo processo 2\n")
+	fmt.Printf("Controle: iniciar uma eleicao pelo processo %d\n", temp.corpo[0])
 
 	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
 
 	// mudar o processo 0 - canal de entrada 3 - para falho (defini mensagem tipo 2 pra isto)
 
 	temp.tipo = 2
+	temp.falho = true // indicar que o processo está falho
 	chans[3] <- temp
 	fmt.Printf("Controle: mudar o processo 0 para falho\n")
 
@@ -51,14 +56,17 @@ func ElectionControler(in chan int) {
 
 	temp.tipo = 1
 	temp.corpo[0] = 3 // colocar o id do processo que inicia a eleicao
+	temp.falho = false // indicar que o processo não está falho
+	temp.origem = temp.corpo[0] // indicar que o processo é o originador da mensagem
 	chans[2] <- temp
-	fmt.Printf("Controle: iniciar uma eleicao pelo processo 3\n")
+	fmt.Printf("Controle: iniciar uma eleicao pelo processo %d\n", temp.corpo[0])
 
 	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
 
 	// mudar o processo 1 - canal de entrada 0 - para falho (defini mensagem tipo 2 pra isto)
 
 	temp.tipo = 2
+	temp.falho = true // indicar que o processo está falho
 	chans[0] <- temp
 	fmt.Printf("Controle: mudar o processo 1 para falho\n")
 	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
@@ -85,7 +93,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 
 	for { // loop infinito para receber mensagens continuamente
 		temp := <-in // ler mensagem
-		fmt.Printf("%2d: recebi mensagem %d, [ %d, %d, %d ]\n", TaskId, temp.tipo, temp.corpo[0], temp.corpo[1], temp.corpo[2])
+		fmt.Printf("%2d: recebi mensagem %d, [ %d, %d, %d ], falho: %v, origem: %d\n", TaskId, temp.tipo, temp.corpo[0], temp.corpo[1], temp.corpo[2], temp.falho, temp.origem)
 
 		switch temp.tipo {
 		case 0:
@@ -98,6 +106,13 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 						out <- temp
 					} else { // se for o lider, enviar uma confirmacao para o controlador
 						controle <- actualLeader
+					}
+				} else { // se estiver falho, ignorar a mensagem ou repassar para o próximo no anel se for de origem diferente
+					if temp.origem != TaskId {
+						fmt.Printf("%2d: repassando mensagem %d\n", TaskId, temp.tipo)
+						out <- temp 
+					} else {
+						fmt.Printf("%2d: ignorando mensagem %d\n", TaskId, temp.tipo)
 					}
 				}
 			}
@@ -119,7 +134,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 							}
 							out <- temp // enviar a mensagem para o proximo no anel
 						} else { // se nao estiver em uma eleicao
-							bElection = true            // iniciar uma eleicao
+							bElection = true // iniciar uma eleicao
 							if TaskId > temp.corpo[0] { // se seu id for maior que o primeiro na mensagem
 								temp.corpo[2] = temp.corpo[1] // deslocar os ids na mensagem
 								temp.corpo[1] = temp.corpo[0]
@@ -127,6 +142,13 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 							}
 							out <- temp // enviar a mensagem para o proximo no anel
 						}
+					}
+				} else { // se estiver falho, ignorar a mensagem ou repassar para o próximo no anel se for de origem diferente
+					if temp.origem != TaskId {
+						fmt.Printf("%2d: repassando mensagem %d\n", TaskId, temp.tipo)
+						out <- temp 
+					} else {
+						fmt.Printf("%2d: ignorando mensagem %d\n", TaskId, temp.tipo)
 					}
 				}
 			}
