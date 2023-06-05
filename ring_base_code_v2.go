@@ -3,15 +3,16 @@ package main
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 type mensagem struct {
-	tipo  int   // tipo da mensagem para controle do que fazer (eleição, confirmação da eleição, novo coordenador)
-	corpo []int // conteúdo da mensagem para armazenar os IDs dos processos no anel
+	tipo  int    // tipo da mensagem para controle do que fazer (eleição, confirmação da eleição, novo coordenador)
+	corpo []int  // conteúdo da mensagem para armazenar os IDs dos processos no anel
 }
 
 var (
-	chans = []chan mensagem{ // vetor de canais para formar o anel de eleição - chan[0], chan[1], chan[2], ...
+	chans         = []chan mensagem{ // vetor de canais para formar o anel de eleição - chan[0], chan[1], chan[2], ...
 		make(chan mensagem),
 		make(chan mensagem),
 		make(chan mensagem),
@@ -29,7 +30,6 @@ func ElectionControler(in chan int) {
 
 	// Simular a detecção de que o coordenador não está mais ativo (por exemplo, receber uma mensagem externa)
 	// Neste exemplo, o processo 0 é definido como falho (mensagem tipo 2)
-
 	temp.tipo = 2
 	chans[0] <- temp
 	fmt.Printf("Controle: mudar o processo 0 para falho\n")
@@ -74,10 +74,8 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem) {
 			if !bFailed {
 				msg.corpo = append(msg.corpo, TaskId) // Inclui o ID do processo na mensagem
 
-				if len(msg.corpo) == len(chans) { // A mensagem completou uma volta no anel
-					if msg.corpo[0] == TaskId {
-						// O processo que iniciou a eleição recebeu a mensagem de volta
-						// Escolher o novo coordenador com base no maior ID
+				if len(msg.corpo) == len(chans) { // Volta completa, processo iniciador recebe a mensagem
+					if TaskId == msg.corpo[0] {
 						maxID := -1
 						for _, id := range msg.corpo {
 							if id > maxID {
@@ -118,7 +116,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem) {
 }
 
 func main() {
-	wg.Add(6) // Adiciona uma contagem de seis, uma para cada goroutine
+	wg.Add(7) // Adiciona uma contagem de sete, uma para cada goroutine
 
 	// Criar os processos do anel de eleição
 	go ElectionStage(0, chans[3], chans[0])
@@ -140,6 +138,12 @@ func main() {
 	}
 	chans[0] <- temp // Enviar mensagem de eleição para o processo 0
 
+	time.Sleep(100 * time.Millisecond) // Pequena pausa para garantir que todas as goroutines terminem
+
 	// Aguardar o término das goroutines
+	close(chans[0])
+	close(chans[1])
+	close(chans[2])
+	close(chans[3])
 	wg.Wait()
 }
