@@ -6,12 +6,12 @@ import (
 )
 
 type mensagem struct {
-	tipo  int    // tipo da mensagem para fazer o controle do que fazer (eleição, confirmação da eleição, novo coordenador)
-	corpo []int  // conteúdo da mensagem para armazenar os IDs dos processos no anel
+	tipo  int   // tipo da mensagem para controle do que fazer (eleição, confirmação da eleição, novo coordenador)
+	corpo []int // conteúdo da mensagem para armazenar os IDs dos processos no anel
 }
 
 var (
-	chans         = []chan mensagem{ // vetor de canais para formar o anel de eleição - chan[0], chan[1], chan[2], ...
+	chans = []chan mensagem{ // vetor de canais para formar o anel de eleição - chan[0], chan[1], chan[2], ...
 		make(chan mensagem),
 		make(chan mensagem),
 		make(chan mensagem),
@@ -48,6 +48,7 @@ func ElectionControler(in chan int) {
 	chans[3] <- temp
 
 	fmt.Println("\n   Processo controlador concluído\n")
+	close(in) // Fechar o canal de controle
 }
 
 func ElectionStage(TaskId int, in chan mensagem, out chan mensagem) {
@@ -55,35 +56,30 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem) {
 
 	var bFailed bool = false // Todos iniciam sem falha
 
-	temp := <-in // ler mensagem
-	fmt.Printf("%2d: recebi mensagem %d, [ %v ]\n", TaskId, temp.tipo, temp.corpo)
+	for msg := range in {
+		fmt.Printf("%2d: recebi mensagem %d, [ %v ]\n", TaskId, msg.tipo, msg.corpo)
 
-	switch temp.tipo {
-	case 2:
-		{
+		switch msg.tipo {
+		case 2:
 			bFailed = true
 			fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
 			fmt.Printf("%2d: coordenador atual %d\n", TaskId, coordenadorID)
 			controle <- -5
-		}
-	case 3:
-		{
+		case 3:
 			bFailed = false
 			fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
 			fmt.Printf("%2d: coordenador atual %d\n", TaskId, coordenadorID)
 			controle <- -5
-		}
-	default:
-		{
-			// Recebeu uma mensagem de eleição
+		case 1:
 			if !bFailed {
-				temp.corpo = append(temp.corpo, TaskId) // Inclui o ID do processo na mensagem
+				msg.corpo = append(msg.corpo, TaskId) // Inclui o ID do processo na mensagem
 
-				if len(temp.corpo) == len(chans) { // A mensagem completou uma volta no anel
-					if temp.corpo[0] == TaskId { // O processo que iniciou a eleição recebeu a mensagem de volta
+				if len(msg.corpo) == len(chans) { // A mensagem completou uma volta no anel
+					if msg.corpo[0] == TaskId {
+						// O processo que iniciou a eleição recebeu a mensagem de volta
 						// Escolher o novo coordenador com base no maior ID
 						maxID := -1
-						for _, id := range temp.corpo {
+						for _, id := range msg.corpo {
 							if id > maxID {
 								maxID = id
 							}
@@ -92,19 +88,29 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem) {
 						fmt.Printf("%2d: eleição concluída, novo coordenador: %d\n", TaskId, coordenadorID)
 
 						// Enviar mensagem informando o novo coordenador para todos os processos no anel
-						temp.tipo = 5
-						temp.corpo = []int{coordenadorID}
-						out <- temp
-						fmt.Printf("%2d: repassou mensagem de novo coordenador [ %v ]\n", TaskId, temp.corpo)
+						msg.tipo = 5
+						msg.corpo = []int{coordenadorID}
+						out <- msg
+						fmt.Printf("%2d: repassou mensagem de novo coordenador [ %v ]\n", TaskId, msg.corpo)
 					} else {
-						out <- temp // Repassar a mensagem para o próximo processo no anel
-						fmt.Printf("%2d: repassou mensagem de eleição [ %v ]\n", TaskId, temp.corpo)
+						out <- msg // Repassar a mensagem para o próximo processo no anel
+						fmt.Printf("%2d: repassou mensagem de eleição [ %v ]\n", TaskId, msg.corpo)
 					}
 				} else {
-					out <- temp // Repassar a mensagem para o próximo processo no anel
-					fmt.Printf("%2d: repassou mensagem de eleição [ %v ]\n", TaskId, temp.corpo)
+					out <- msg // Repassar a mensagem para o próximo processo no anel
+					fmt.Printf("%2d: repassou mensagem de eleição [ %v ]\n", TaskId, msg.corpo)
 				}
 			}
+		case 5:
+			if !bFailed {
+				coordenadorID = msg.corpo[0]
+				fmt.Printf("%2d: novo coordenador recebido: %d\n", TaskId, coordenadorID)
+				out <- msg // Repassar a mensagem de novo coordenador para o próximo processo no anel
+			}
+		default:
+			fmt.Printf("%2d: não conheço este tipo de mensagem\n", TaskId)
+			fmt.Printf("%2d: coordenador atual %d\n", TaskId, coordenadorID)
+			controle <- -5
 		}
 	}
 
@@ -112,11 +118,9 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem) {
 }
 
 func main() {
-
-	wg.Add(5) // Adiciona uma contagem de cinco, uma para cada goroutine
+	wg.Add(6) // Adiciona uma contagem de seis, uma para cada goroutine
 
 	// Criar os processos do anel de eleição
-
 	go ElectionStage(0, chans[3], chans[0])
 	go ElectionStage(1, chans[0], chans[1])
 	go ElectionStage(2, chans[1], chans[2])
@@ -125,13 +129,11 @@ func main() {
 	fmt.Println("\n   Anel de processos criado")
 
 	// Criar o processo controlador
-
 	go ElectionControler(controle)
 
 	fmt.Println("\n   Processo controlador criado\n")
 
 	// Simular uma nova eleição (por exemplo, receber uma mensagem externa)
-
 	temp := mensagem{
 		tipo:  1,
 		corpo: []int{0}, // O processo 0 inicia a eleição
