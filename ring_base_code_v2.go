@@ -1,6 +1,3 @@
-// Código exemplo para o trabaho de sistemas distribuidos (eleicao em anel)
-// By Cesar De Rose - 2022
-
 package main
 
 import (
@@ -10,11 +7,11 @@ import (
 
 type mensagem struct {
 	tipo  int    // tipo da mensagem para fazer o controle do que fazer (eleição, confirmacao da eleicao)
-	corpo [3]int // conteudo da mensagem para colocar os ids (usar um tamanho ocmpativel com o numero de processos no anel)
+	corpo [3]int // conteudo da mensagem para colocar os ids (usar um tamanho compativel com o numero de processos no anel)
 }
 
 var (
-	chans = []chan mensagem{ // vetor de canias para formar o anel de eleicao - chan[0], chan[1] and chan[2] ...
+	chans = []chan mensagem{ // vetor de canais para formar o anel de eleicao - chan[0], chan[1] and chan[2] ...
 		make(chan mensagem),
 		make(chan mensagem),
 		make(chan mensagem),
@@ -29,13 +26,31 @@ func ElectionControler(in chan int) {
 
 	var temp mensagem
 
-	// comandos para o anel iciam aqui
+	// comandos para o anel iniciam aqui
+
+	// iniciar uma eleicao pelo processo 2 - canal de entrada 1 - (defini mensagem tipo 1 pra isto)
+
+	temp.tipo = 1
+	temp.corpo[0] = 2 // colocar o id do processo que inicia a eleicao
+	chans[1] <- temp
+	fmt.Printf("Controle: iniciar uma eleicao pelo processo 2\n")
+
+	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
 
 	// mudar o processo 0 - canal de entrada 3 - para falho (defini mensagem tipo 2 pra isto)
 
 	temp.tipo = 2
 	chans[3] <- temp
 	fmt.Printf("Controle: mudar o processo 0 para falho\n")
+
+	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
+
+	// iniciar uma eleicao pelo processo 3 - canal de entrada 2 - (defini mensagem tipo 1 pra isto)
+
+	temp.tipo = 1
+	temp.corpo[0] = 3 // colocar o id do processo que inicia a eleicao
+	chans[2] <- temp
+	fmt.Printf("Controle: iniciar uma eleicao pelo processo 3\n")
 
 	fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
 
@@ -61,14 +76,57 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 	// variaveis locais que indicam se este processo é o lider e se esta ativo
 
 	var actualLeader int
-	var bFailed bool = false // todos inciam sem falha
+	var bFailed bool = false   // todos inciam sem falha
+	var bElection bool = false // indica se o processo iniciou uma eleicao
 
-	actualLeader = leader // indicação do lider veio por parâmatro
+	actualLeader = leader // indicação do lider veio por parâmetro
 
 	temp := <-in // ler mensagem
 	fmt.Printf("%2d: recebi mensagem %d, [ %d, %d, %d ]\n", TaskId, temp.tipo, temp.corpo[0], temp.corpo[1], temp.corpo[2])
 
 	switch temp.tipo {
+	case 0:
+		{
+			if !bFailed {
+				actualLeader = temp.corpo[0] // atualizar o lider com o id na mensagem
+				fmt.Printf("%2d: novo lider %d\n", TaskId, actualLeader)
+				bElection = false           // encerrar a eleicao
+				if TaskId != actualLeader { // se nao for o lider, enviar a mensagem para o proximo no anel
+					out <- temp
+				} else { // se for o lider, enviar uma confirmacao para o controlador
+					controle <- actualLeader
+				}
+			}
+		}
+	case 1:
+		{
+			if !bFailed {
+				if temp.corpo[0] == TaskId { // se for o processo que iniciou a eleicao
+					bElection = false              // encerrar a eleicao
+					actualLeader = max(temp.corpo) // escolher o maior id na mensagem como o novo lider
+					fmt.Printf("%2d: novo lider %d\n", TaskId, actualLeader)
+					temp.tipo = 0 // mudar o tipo da mensagem para anunciar o novo lider
+					out <- temp   // enviar a mensagem para o proximo no anel
+				} else { // se nao for o processo que iniciou a eleicao
+					if bElection { // se ja estiver em uma eleicao
+						if TaskId > temp.corpo[2] { // se seu id for maior que o ultimo na mensagem
+							temp.corpo[2] = temp.corpo[1] // deslocar os ids na mensagem
+							temp.corpo[1] = temp.corpo[0]
+							temp.corpo[0] = TaskId // adicionar seu id na mensagem
+						}
+						out <- temp // enviar a mensagem para o proximo no anel
+					} else { // se nao estiver em uma eleicao
+						bElection = true            // iniciar uma eleicao
+						if TaskId > temp.corpo[0] { // se seu id for maior que o primeiro na mensagem
+							temp.corpo[2] = temp.corpo[1] // deslocar os ids na mensagem
+							temp.corpo[1] = temp.corpo[0]
+							temp.corpo[0] = TaskId // adicionar seu id na mensagem
+						}
+						out <- temp // enviar a mensagem para o proximo no anel
+					}
+				}
+			}
+		}
 	case 2:
 		{
 			bFailed = true
@@ -91,6 +149,16 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 	}
 
 	fmt.Printf("%2d: terminei \n", TaskId)
+}
+
+func max(arr [3]int) int {
+	max := arr[0]
+	for _, v := range arr {
+		if v > max {
+			max = v
+		}
+	}
+	return max
 }
 
 func main() {
