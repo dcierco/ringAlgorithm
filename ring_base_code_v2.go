@@ -4,14 +4,17 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sync"
 )
 
+var maxIter int = 30 // número máximo de iterações
+
 type mensagem struct {
-	tipo    int    // tipo da mensagem para fazer o controle do que fazer (eleição, confirmacao da eleicao)
-	corpo   [3]int // conteudo da mensagem para colocar os ids (usar um tamanho compativel com o numero de processos no anel)
-	falho   bool   // indica se o processo que enviou a mensagem está falho ou não
-	origem int // indica o id do processo que enviou a mensagem originalmente
+	tipo   int    // tipo da mensagem para fazer o controle do que fazer (eleição, confirmacao da eleicao)
+	corpo  [3]int // conteudo da mensagem para colocar os ids (usar um tamanho compativel com o numero de processos no anel)
+	falho  bool   // indica se o processo que enviou a mensagem está falho ou não
+	origem int    // indica o id do processo que enviou a mensagem originalmente
 }
 
 var (
@@ -35,8 +38,8 @@ func ElectionControler(in chan int) {
 	// iniciar uma eleicao pelo processo 2 - canal de entrada 1 - (defini mensagem tipo 1 pra isto)
 
 	temp.tipo = 1
-	temp.corpo[0] = 2 // colocar o id do processo que inicia a eleicao
-	temp.falho = false // indicar que o processo não está falho
+	temp.corpo[0] = 2           // colocar o id do processo que inicia a eleicao
+	temp.falho = false          // indicar que o processo não está falho
 	temp.origem = temp.corpo[0] // indicar que o processo é o originador da mensagem
 	chans[1] <- temp
 	fmt.Printf("Controle: iniciar uma eleicao pelo processo %d\n", temp.corpo[0])
@@ -55,8 +58,8 @@ func ElectionControler(in chan int) {
 	// iniciar uma eleicao pelo processo 3 - canal de entrada 2 - (defini mensagem tipo 1 pra isto)
 
 	temp.tipo = 1
-	temp.corpo[0] = 3 // colocar o id do processo que inicia a eleicao
-	temp.falho = false // indicar que o processo não está falho
+	temp.corpo[0] = 3           // colocar o id do processo que inicia a eleicao
+	temp.falho = false          // indicar que o processo não está falho
 	temp.origem = temp.corpo[0] // indicar que o processo é o originador da mensagem
 	chans[2] <- temp
 	fmt.Printf("Controle: iniciar uma eleicao pelo processo %d\n", temp.corpo[0])
@@ -110,7 +113,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 				} else { // se estiver falho, ignorar a mensagem ou repassar para o próximo no anel se for de origem diferente
 					if temp.origem != TaskId {
 						fmt.Printf("%2d: repassando mensagem %d\n", TaskId, temp.tipo)
-						out <- temp 
+						out <- temp
 					} else {
 						fmt.Printf("%2d: ignorando mensagem %d\n", TaskId, temp.tipo)
 					}
@@ -123,7 +126,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 						bElection = false              // encerrar a eleicao
 						actualLeader = max(temp.corpo) // escolher o maior id na mensagem como o novo lider
 						fmt.Printf("%2d: novo lider %d\n", TaskId, actualLeader)
-						temp.tipo = 0 // mudar o tipo da mensagem para anunciar o novo lider
+						temp.tipo = 1 // mudar o tipo da mensagem para anunciar o novo lider
 						out <- temp   // enviar a mensagem para o proximo no anel
 					} else { // se nao for o processo que iniciou a eleicao
 						if bElection { // se ja estiver em uma eleicao
@@ -134,7 +137,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 							}
 							out <- temp // enviar a mensagem para o proximo no anel
 						} else { // se nao estiver em uma eleicao
-							bElection = true // iniciar uma eleicao
+							bElection = true            // iniciar uma eleicao
 							if TaskId > temp.corpo[0] { // se seu id for maior que o primeiro na mensagem
 								temp.corpo[2] = temp.corpo[1] // deslocar os ids na mensagem
 								temp.corpo[1] = temp.corpo[0]
@@ -146,7 +149,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 				} else { // se estiver falho, ignorar a mensagem ou repassar para o próximo no anel se for de origem diferente
 					if temp.origem != TaskId {
 						fmt.Printf("%2d: repassando mensagem %d\n", TaskId, temp.tipo)
-						out <- temp 
+						out <- temp
 					} else {
 						fmt.Printf("%2d: ignorando mensagem %d\n", TaskId, temp.tipo)
 					}
@@ -174,6 +177,10 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 		}
 
 		fmt.Printf("%2d: terminei \n", TaskId)
+		maxIter--         // decrementar o contador
+		if maxIter == 0 { // verificar se atingiu o limite
+			os.Exit(0) // encerrar o programa
+		}
 	}
 }
 
@@ -193,8 +200,8 @@ func main() {
 
 	// criar os processo do anel de eleicao
 
-	go ElectionStage(0, chans[3], chans[0], 0) // este é o lider
-	go ElectionStage(1, chans[0], chans[1], 0) // não é lider, é o processo 0
+	go ElectionStage(0, chans[3], chans[1], 0) // este é o lider
+	go ElectionStage(1, chans[1], chans[2], 0) // não é lider, é o processo 0
 	go ElectionStage(2, chans[1], chans[2], 0) // não é lider, é o processo 0
 	go ElectionStage(3, chans[2], chans[3], 0) // não é lider, é o processo 0
 
